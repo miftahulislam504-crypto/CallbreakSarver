@@ -1,0 +1,39 @@
+{
+  "name": "callbreak-server",
+  "version": "0.1.0",
+  "description": "Call Break (কল ব্রেক) real-time multiplayer server — Colyseus",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/engine.test.ts",
+    "test:room": "node --import tsx --test test/room.test.ts",
+    "test:auth": "node --import tsx --test test/auth.test.ts",
+    "test:all": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^5.0.40",
+    "@colyseus/tools": "^0.18.10",
+    "colyseus": "^0.18.9",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.5",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
