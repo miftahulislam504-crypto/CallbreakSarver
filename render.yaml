@@ -1,0 +1,18 @@
+# Render Blueprint: free web service for the Call Break game server.
+# Deploy: push this repo to GitHub, then Render dashboard > New > Blueprint > pick the repo.
+services:
+  - type: web
+    name: callbreak-server
+    runtime: node
+    plan: free
+    region: singapore          # closest to Bangladesh
+    # devDependencies (typescript) are needed to build, so install them explicitly.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Your Firebase projectId. With this set, joining requires a valid Firebase ID token.
+      - key: FIREBASE_PROJECT_ID
+        sync: false
