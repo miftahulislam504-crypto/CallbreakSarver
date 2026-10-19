@@ -68,7 +68,15 @@ export function legalPlays(hand: readonly Card[], trick: readonly PlayedCard[]):
   return hand.slice();
 }
 
-/** Score for one player's round in tenths of a point: bid met = bid + 0.1 per extra trick, else -bid. */
+/**
+ * Score for one player's round in tenths of a point (always a multiple of 10: whole points).
+ * - fewer tricks than the bid          -> -bid
+ * - at least double the bid (or more)  -> -bid
+ * - from the bid up to just under 2x   -> +bid (no bonus for extra tricks)
+ * A bid of 7 or 8 can never be doubled (only 13 tricks exist), so only falling short costs points there.
+ */
 export function roundScore10(bid: number, tricks: number): number {
-  return tricks >= bid ? bid * 10 + (tricks - bid) : -bid * 10;
+  if (bid <= 0) return 0;
+  if (tricks < bid || tricks >= bid * 2) return -bid * 10;
+  return bid * 10;
 }

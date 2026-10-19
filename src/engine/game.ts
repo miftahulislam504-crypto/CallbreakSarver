@@ -6,7 +6,7 @@ import {
 export const SEATS = 4;
 export const TRICKS_PER_ROUND = 13;
 
-export type Phase = 'lobby' | 'bidding' | 'playing' | 'roundEnd' | 'finished';
+export type Phase = 'lobby' | 'dealing' | 'bidding' | 'playing' | 'roundEnd' | 'finished';
 
 export interface GameConfig {
   /** Whole points; the game ends when a single leader has reached it. */
@@ -21,6 +21,12 @@ export interface GameConfig {
    * missing a bid there: each player is scored as if they had bid exactly the tricks they won.
    */
   noBidRounds: number;
+  /**
+   * When true, a deal first enters the 'dealing' phase (cards are dealt out and players look at
+   * them); the caller then calls beginRound() to start bidding / play. When false, a deal goes
+   * straight into bidding / play.
+   */
+  dealPhase: boolean;
 }
 
 export interface GameOptions extends Partial<Omit<GameConfig, 'targetScore'>> {
@@ -110,6 +116,7 @@ export class CallBreakGame {
       maxRounds: opts.maxRounds ?? Math.max(30, Math.ceil(opts.targetScore * 1.5)),
       redeal: opts.redeal ?? { noSpade: true, allBelow: 10 },
       noBidRounds: opts.noBidRounds ?? 0,
+      dealPhase: opts.dealPhase ?? false,
     };
   }
 
@@ -144,8 +151,20 @@ export class CallBreakGame {
     this.tricksWon = [0, 0, 0, 0];
     this.trick = [];
     this.lastTrick = null;
-    this.phase = this.round <= this.config.noBidRounds ? 'playing' : 'bidding';
     this.turn = (this.dealer + 1) % SEATS;
+    this.phase = this.config.dealPhase ? 'dealing' : this.firstPhase();
+  }
+
+  private firstPhase(): Phase {
+    return this.round <= this.config.noBidRounds ? 'playing' : 'bidding';
+  }
+
+  /** Call after a 'dealing' phase: the hands are out and seen, so bidding (or play) starts. */
+  beginRound(): ActionResult {
+    if (this.phase !== 'dealing') return fail('Not dealing');
+    this.phase = this.firstPhase();
+    this.turn = (this.dealer + 1) % SEATS;
+    return { ok: true, events: [] };
   }
 
   /** True while the current round is played without bidding. */

@@ -11,7 +11,7 @@ import { getMatchStore, type MatchResult } from '../services/matchStore.js';
  * Types sent to clients
  * ------------------------------------------------------------------------- */
 
-export type RoomStatus = 'lobby' | 'bidding' | 'playing' | 'roundEnd' | 'finished';
+export type RoomStatus = 'lobby' | 'dealing' | 'bidding' | 'playing' | 'roundEnd' | 'finished';
 
 export interface PublicSeat {
   seat: number;
@@ -37,6 +37,10 @@ export interface RoomView {
   deadline: number | null;
   /** Epoch ms when the next round is dealt (round-end screen only). */
   nextRoundAt: number | null;
+  /** Epoch ms when the cards were dealt (dealing phase only), with the animation and look-at-cards lengths. */
+  dealAt: number | null;
+  dealMs: number;
+  viewMs: number;
   /** Server clock, so clients can correct for clock skew when showing countdowns. */
   serverTime: number;
   /** How long a human has to bid / play, so clients can size their countdown bars. */
@@ -121,6 +125,8 @@ export class CallBreakRoom extends Room {
 
   private turnTimer: Timer | null = null;
   private roundTimer: Timer | null = null;
+  private dealTimer: Timer | null = null;
+  private dealAt: number | null = null;
   private deadline: number | null = null;
   private nextRoundAt: number | null = null;
 
@@ -245,7 +251,7 @@ export class CallBreakRoom extends Room {
       empty.forEach((i) => this.putBot(i));
     }
 
-    this.game = new CallBreakGame({ targetScore: this.targetScore, noBidRounds: config.noBidRounds });
+    this.game = new CallBreakGame({ targetScore: this.targetScore, noBidRounds: config.noBidRounds, dealPhase: true });
     this.game.start(randomInt(SEATS));
     this.startedAt = Date.now();
     void this.lock();
@@ -354,7 +360,8 @@ export class CallBreakRoom extends Room {
     }
     this.clearTimers();
     if (game) {
-      if (game.phase === 'bidding' || game.phase === 'playing') this.scheduleTurn();
+      if (game.phase === 'dealing') this.scheduleDeal();
+      else if (game.phase === 'bidding' || game.phase === 'playing') this.scheduleTurn();
       else if (game.phase === 'roundEnd') this.scheduleNextRound();
     }
     this.updateMetadata();
@@ -420,6 +427,19 @@ export class CallBreakRoom extends Room {
     this.afterChange(res);
   }
 
+  /** Cards are dealt and shown for a while; then bidding (or play, in a no-bid round) begins. */
+  private scheduleDeal(): void {
+    this.deadline = null;
+    this.dealAt = Date.now();
+    this.dealTimer = this.clock.setTimeout(() => {
+      this.dealAt = null;
+      const game = this.game;
+      if (!game || game.phase !== 'dealing') return;
+      game.beginRound();
+      this.afterChange();
+    }, config.dealMs + config.viewMs);
+  }
+
   private scheduleNextRound(): void {
     this.deadline = null;
     this.nextRoundAt = Date.now() + config.roundEndMs;
@@ -440,9 +460,12 @@ export class CallBreakRoom extends Room {
   private clearTimers(): void {
     this.turnTimer?.clear();
     this.roundTimer?.clear();
+    this.dealTimer?.clear();
     this.turnTimer = null;
     this.roundTimer = null;
+    this.dealTimer = null;
     this.deadline = null;
+    if (!this.game || this.game.phase !== 'dealing') this.dealAt = null;
     if (!this.game || this.game.phase !== 'roundEnd') this.nextRoundAt = null;
   }
 
@@ -525,6 +548,9 @@ export class CallBreakRoom extends Room {
       })),
       deadline: this.deadline,
       nextRoundAt: this.nextRoundAt,
+      dealAt: this.dealAt,
+      dealMs: config.dealMs,
+      viewMs: config.viewMs,
       serverTime: Date.now(),
       bidSeconds: config.bidSeconds,
       playSeconds: config.playSeconds,
