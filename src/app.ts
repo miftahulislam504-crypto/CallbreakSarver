@@ -1,9 +1,11 @@
-import { defineServer, defineRoom, matchMaker } from 'colyseus';
+import { defineServer, defineRoom, matchMaker, WebSocketTransport } from 'colyseus';
 import { CallBreakRoom } from './rooms/CallBreakRoom.js';
 
 /** The Colyseus server definition (separate from `listen` so tests can start it on any port). */
 export const createServer = () =>
   defineServer({
+    // Colyseus caps a client message at 4 KB by default; a profile photo (setAvatar) is bigger than that.
+    transport: new WebSocketTransport({ maxPayload: 32 * 1024 }),
     rooms: {
       // Quick match only pairs players who picked the same target score.
       callbreak: defineRoom(CallBreakRoom).filterBy(['targetScore']),

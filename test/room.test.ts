@@ -296,3 +296,27 @@ test('dealing phase: cards are dealt, everyone looks at them, then bidding start
     config.viewMs = 0;
   }
 });
+
+test('avatars: valid JPEG data URIs reach every player, junk is dropped, changes propagate', async () => {
+  const good = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof';
+  const host = await hostCreate({ isPrivate: true }, false);
+  const got: Record<string, (string | null)[]> = {};
+  host.room.onMessage('avatars', (m: any) => (got.host = m.avatars));
+  const code = host.view().roomCode;
+
+  const bela = await attach(await connect().joinById(code, { name: 'Bela', avatar: good }), false);
+  const evil = await attach(await connect().joinById(code, { name: 'Evil', avatar: 'data:image/svg+xml;base64,PHN2Zz4=' }), false);
+  bela.room.onMessage('avatars', (m: any) => (got.bela = m.avatars));
+  bela.room.send('sync');
+
+  await waitFor(() => got.host?.[bela.view().mySeat] === good, 3000, 'host sees Bela photo');
+  await waitFor(() => got.bela?.[bela.view().mySeat] === good, 3000, 'Bela sees own photo');
+  assert.equal(got.host[evil.view().mySeat], null, 'non-JPEG avatar is dropped');
+  assert.equal(got.host[host.view().mySeat], null, 'no avatar -> null');
+
+  // Changing and removing a photo mid-room is broadcast.
+  host.room.send('setAvatar', { avatar: good });
+  await waitFor(() => got.bela?.[host.view().mySeat] === good, 3000, 'photo change propagates');
+  host.room.send('setAvatar', { avatar: 'x'.repeat(config.maxAvatarChars + 5) });
+  await waitFor(() => got.bela?.[host.view().mySeat] === null, 3000, 'oversized photo is removed');
+});

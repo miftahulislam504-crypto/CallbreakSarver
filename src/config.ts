@@ -42,6 +42,8 @@ export const config = {
   maxTarget: 500,
   defaultTarget: 49,
   maxNameLength: 20,
+  /** Longest accepted avatar data URI (a ~96x120 JPEG is about 5-8k characters). */
+  maxAvatarChars: 16000,
 };
 
 export type Config = typeof config;
