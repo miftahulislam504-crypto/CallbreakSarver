@@ -60,6 +60,8 @@ interface Seat {
   wasHuman: boolean;
   name: string;
   uid: string | null;
+  /** Small profile photo as a JPEG data URI (validated by cleanAvatar); null = show the initial. */
+  avatar?: string | null;
   sessionId: string | null;
   connected: boolean;
   auto: boolean;
@@ -97,6 +99,16 @@ function cleanName(raw: unknown, fallback: string): string {
   return name.length > 0 ? name : fallback;
 }
 
+const AVATAR_PREFIX = 'data:image/jpeg;base64,';
+const AVATAR_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Accepts only a small JPEG data URI; anything else (too big, wrong type, junk) becomes null. */
+export function cleanAvatar(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > config.maxAvatarChars) return null;
+  if (!raw.startsWith(AVATAR_PREFIX)) return null;
+  return AVATAR_B64.test(raw.slice(AVATAR_PREFIX.length)) ? raw : null;
+}
+
 function parseTarget(raw: unknown): number | null {
   const n = typeof raw === 'string' ? Number(raw) : raw;
   if (typeof n !== 'number' || !Number.isInteger(n)) return null;
@@ -122,6 +134,9 @@ export class CallBreakRoom extends Room {
   private hostSeat = -1;
   private game: CallBreakGame | null = null;
   private startedAt = 0;
+
+  /** Per client: the avatar set it was last sent, so photos travel only when they change. */
+  private avatarsSent = new WeakMap<Client, string>();
 
   private turnTimer: Timer | null = null;
   private roundTimer: Timer | null = null;
@@ -149,7 +164,11 @@ export class CallBreakRoom extends Room {
     this.onMessage('bid', (client, msg) => this.handleBid(client, msg));
     this.onMessage('play', (client, msg) => this.handlePlay(client, msg));
     this.onMessage('rematch', (client) => this.handleRematch(client));
-    this.onMessage('sync', (client) => this.sendView(client));
+    this.onMessage('sync', (client) => {
+      this.avatarsSent.delete(client); // a (re)syncing client gets the photos again
+      this.sendView(client);
+    });
+    this.onMessage('setAvatar', (client, msg) => this.handleSetAvatar(client, msg));
   }
 
   async onAuth(_client: Client, options: any): Promise<any> {
@@ -159,11 +178,12 @@ export class CallBreakRoom extends Room {
       return {
         name: cleanName(options?.name, 'Player'),
         uid: typeof options?.uid === 'string' ? options.uid.slice(0, 128) : null,
+        avatar: cleanAvatar(options?.avatar),
       };
     }
     try {
       const user = await verify(options?.idToken);
-      return { name: cleanName(options?.name, cleanName(user.name, 'Player')), uid: user.uid };
+      return { name: cleanName(options?.name, cleanName(user.name, 'Player')), uid: user.uid, avatar: cleanAvatar(options?.avatar) };
     } catch {
       throw new ServerError(401, 'invalid_token');
     }
@@ -182,6 +202,7 @@ export class CallBreakRoom extends Room {
       wasHuman: true,
       name: info.name ?? 'Player',
       uid: info.uid ?? null,
+      avatar: info.avatar ?? null,
       sessionId: client.sessionId,
       connected: true,
       auto: false,
@@ -279,6 +300,13 @@ export class CallBreakRoom extends Room {
     }
     this.seats[target] = emptySeat();
     this.updateMetadata();
+    this.broadcastState();
+  }
+
+  private handleSetAvatar(client: Client, msg: any): void {
+    const idx = this.seatOf(client);
+    if (idx === -1) return;
+    this.seats[idx].avatar = cleanAvatar(msg?.avatar);
     this.broadcastState();
   }
 
@@ -561,7 +589,17 @@ export class CallBreakRoom extends Room {
   private sendView(client: Client): void {
     const idx = this.seatOf(client);
     if (idx === -1) return;
+    this.sendAvatars(client);
     client.send('state', this.buildView(idx));
+  }
+
+  /** Photos ride in their own message (not in every state update) and only when something changed. */
+  private sendAvatars(client: Client): void {
+    const list = this.seats.map((s) => (s.occupied && !s.isBot ? (s.avatar ?? null) : null));
+    const sig = list.map((a) => (a ? `${a.length}:${a.slice(-12)}` : '-')).join('|');
+    if (this.avatarsSent.get(client) === sig) return;
+    this.avatarsSent.set(client, sig);
+    client.send('avatars', { avatars: list });
   }
 
   private broadcastState(): void {
