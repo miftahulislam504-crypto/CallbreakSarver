@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { listen } from 'colyseus';
 import { Client } from '@colyseus/sdk';
 import { createServer } from '../src/app.js';
+import { config } from '../src/config.js';
 import type { RoomView } from '../src/rooms/CallBreakRoom.js';
 import { setMatchStore, type MatchResult } from '../src/services/matchStore.js';
 
@@ -254,4 +255,21 @@ test('disconnect: seat is held, bot covers, player reconnects and keeps seat + h
   await waitFor(() => guest.view().mySeat === guestSeat, 5000, 'same seat after reconnect');
   assert.ok(guest.view().game!.myHand.length <= handBefore);
   assert.equal(host.view().seats[guestSeat].name, 'Guest');
+});
+
+test('no-bid first round (production default): play starts at once with no bids, round 2 has bidding', async () => {
+  config.noBidRounds = 1;
+  try {
+    const host = await hostCreate({ isPrivate: true, targetScore: 29 }, true);
+    host.room.send('start', { fillBots: true });
+    await waitFor(() => host.view().status === 'playing', 3000, 'round 1 goes straight to playing');
+    assert.ok(host.view().game!.bids.every((b) => b === null));
+    assert.equal(host.view().game!.round, 1);
+    await waitFor(() => host.view().game!.round >= 2, 30000, 'round 2 reached');
+    const r1 = host.view().game!.history[0];
+    assert.deepEqual(r1.bids, r1.tricks);
+    await waitFor(() => host.view().game!.phase === 'bidding' || host.view().game!.round > 2 || host.view().status === 'finished', 5000, 'round 2 bidding');
+  } finally {
+    config.noBidRounds = 0;
+  }
 });

@@ -12,6 +12,9 @@ export const config = {
   /** Set FIREBASE_PROJECT_ID in production: joins then require a valid Firebase ID token. */
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID?.trim() || null,
 
+  /** The first N rounds are played without bidding; a player's score there is their tricks won. */
+  noBidRounds: num('CB_NO_BID_ROUNDS', 1),
+
   /** Seconds a human has to bid / play before the server plays for them. */
   bidSeconds: num('CB_BID_SECONDS', 20),
   playSeconds: num('CB_PLAY_SECONDS', 30),

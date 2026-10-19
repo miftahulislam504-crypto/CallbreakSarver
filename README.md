@@ -58,4 +58,7 @@ DEPLOY.md              deploy-এর ধাপ (বাংলায়)
 ## Client protocol (app যা পাঠায়/পায়)
 Room name: `callbreak`। ঢোকার options: `{ name, uid, idToken?, roomName?, isPrivate?, targetScore? }`।
 server → client: `state` (পুরো `RoomView`, প্রতি পরিবর্তনে) আর `error` (`{code, message}`)।
+
+প্রথম রাউন্ড বিড ছাড়া খেলা হয় (`CB_NO_BID_ROUNDS`, ডিফল্ট ১; `0` দিলে বন্ধ)। ওই রাউন্ডে স্কোর = জেতা হাতের সংখ্যা (বিড = হাত ধরা হয়)।
+
 client → server: `sync`, `setTarget`, `addBot`, `removeBot`, `start {fillBots}`, `bid {bid}`, `play {suit, rank}`, `rematch`।

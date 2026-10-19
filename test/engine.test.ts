@@ -225,3 +225,35 @@ test('tie at the top after reaching the target keeps the game going', () => {
   if (g.phase === 'finished') assert.equal(leaders, 1);
   else assert.equal(g.phase, 'roundEnd');
 });
+
+test('no-bid round: dealt straight into play, bids rejected, scored as tricks won, then bidding resumes', () => {
+  const g = new CallBreakGame({ targetScore: 99, noBidRounds: 1, rng: mulberry32(21) });
+  g.start(0);
+  assert.equal(g.phase, 'playing');
+  assert.equal(g.noBid, true);
+  assert.equal(g.turn, 1);
+  assert.equal(g.placeBid(1, 2).ok, false);
+  assert.ok(g.viewFor(1).bids.every((b) => b === null));
+
+  while (g.phase === 'playing') {
+    const seat = g.turn;
+    const r = g.playCard(seat, chooseCard({ hand: g.hands[seat], trick: g.trick, seat, bid: 13, tricksWon: g.tricksWon[seat] }));
+    assert.ok(r.ok);
+  }
+  assert.equal(g.phase, 'roundEnd');
+  const r1 = g.history[0];
+  assert.deepEqual(r1.bids, r1.tricks);
+  assert.deepEqual(r1.scores10, r1.tricks.map((t) => t * 10));
+  assert.equal(r1.scores10.reduce((a, b) => a + b, 0), 130);
+
+  assert.ok(g.nextRound().ok);
+  assert.equal(g.round, 2);
+  assert.equal(g.noBid, false);
+  assert.equal(g.phase, 'bidding');
+});
+
+test('noBidRounds defaults to 0: round 1 starts with bidding', () => {
+  const g = new CallBreakGame({ targetScore: 29, rng: mulberry32(2) });
+  g.start(0);
+  assert.equal(g.phase, 'bidding');
+});

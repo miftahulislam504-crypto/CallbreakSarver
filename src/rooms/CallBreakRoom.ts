@@ -4,7 +4,7 @@ import { getTokenVerifier } from '../auth/verifyIdToken.js';
 import { config } from '../config.js';
 import { chooseBid, chooseCard } from '../engine/bot.js';
 import { isValidCard } from '../engine/cards.js';
-import { ActionResult, CallBreakGame, GameView, SEATS } from '../engine/game.js';
+import { ActionResult, CallBreakGame, GameView, SEATS, TRICKS_PER_ROUND } from '../engine/game.js';
 import { getMatchStore, type MatchResult } from '../services/matchStore.js';
 
 /* ----------------------------------------------------------------------------
@@ -245,7 +245,7 @@ export class CallBreakRoom extends Room {
       empty.forEach((i) => this.putBot(i));
     }
 
-    this.game = new CallBreakGame({ targetScore: this.targetScore });
+    this.game = new CallBreakGame({ targetScore: this.targetScore, noBidRounds: config.noBidRounds });
     this.game.start(randomInt(SEATS));
     this.startedAt = Date.now();
     void this.lock();
@@ -405,7 +405,8 @@ export class CallBreakRoom extends Room {
         hand: game.hands[idx],
         trick: game.trick,
         seat: idx,
-        bid: game.bids[idx] ?? game.config.minBid,
+        // No-bid round: every trick counts, so bots chase them all.
+        bid: game.noBid ? TRICKS_PER_ROUND : (game.bids[idx] ?? game.config.minBid),
         tricksWon: game.tricksWon[idx],
       });
       res = game.playCard(idx, card);

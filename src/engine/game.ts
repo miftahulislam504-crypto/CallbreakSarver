@@ -16,6 +16,11 @@ export interface GameConfig {
   /** Safety cap so a game can never run forever; at the cap the top score(s) win. */
   maxRounds: number;
   redeal: RedealRules;
+  /**
+   * The first N rounds are dealt straight into play, with no bidding. Nobody can lose points for
+   * missing a bid there: each player is scored as if they had bid exactly the tricks they won.
+   */
+  noBidRounds: number;
 }
 
 export interface GameOptions extends Partial<Omit<GameConfig, 'targetScore'>> {
@@ -104,10 +109,11 @@ export class CallBreakGame {
       maxBid: opts.maxBid ?? 8,
       maxRounds: opts.maxRounds ?? Math.max(30, Math.ceil(opts.targetScore * 1.5)),
       redeal: opts.redeal ?? { noSpade: true, allBelow: 10 },
+      noBidRounds: opts.noBidRounds ?? 0,
     };
   }
 
-  /** Deals round 1. `dealer` is the seat that deals; the seat after it bids and leads first. */
+  /** Deals round 1. `dealer` is the seat that deals; the seat after it bids (or just leads, in a no-bid round) first. */
   start(dealer: number): ActionResult {
     if (this.phase !== 'lobby') return fail('Game already started');
     if (!Number.isInteger(dealer) || dealer < 0 || dealer >= SEATS) return fail('Bad dealer seat');
@@ -138,8 +144,13 @@ export class CallBreakGame {
     this.tricksWon = [0, 0, 0, 0];
     this.trick = [];
     this.lastTrick = null;
-    this.phase = 'bidding';
+    this.phase = this.round <= this.config.noBidRounds ? 'playing' : 'bidding';
     this.turn = (this.dealer + 1) % SEATS;
+  }
+
+  /** True while the current round is played without bidding. */
+  get noBid(): boolean {
+    return this.round >= 1 && this.round <= this.config.noBidRounds;
   }
 
   placeBid(seat: number, bid: unknown): ActionResult {
@@ -195,7 +206,8 @@ export class CallBreakGame {
   }
 
   private endRound(events: GameEvent[]): void {
-    const bids = this.bids as number[];
+    // No-bid round: the bid is whatever the player took, so the score is simply tricks x 1.0.
+    const bids = this.noBid ? this.tricksWon.slice() : (this.bids as number[]);
     const scores10 = bids.map((b, s) => roundScore10(b, this.tricksWon[s]));
     scores10.forEach((sc, s) => (this.totals10[s] += sc));
     this.history.push({
