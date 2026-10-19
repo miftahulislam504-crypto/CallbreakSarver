@@ -273,3 +273,26 @@ test('no-bid first round (production default): play starts at once with no bids,
     config.noBidRounds = 0;
   }
 });
+
+test('dealing phase: cards are dealt, everyone looks at them, then bidding starts', async () => {
+  config.dealMs = 150;
+  config.viewMs = 250;
+  try {
+    const host = await hostCreate({ isPrivate: true, targetScore: 29 }, false);
+    host.room.send('start', { fillBots: true });
+    await waitFor(() => host.view().status === 'dealing', 3000, 'dealing phase');
+    const v = host.view();
+    assert.equal(v.game!.myHand.length, 13); // the hand is already there, the client animates it
+    assert.equal(v.dealMs, 150);
+    assert.equal(v.viewMs, 250);
+    assert.ok(v.dealAt !== null && v.dealAt <= v.serverTime);
+    host.room.send('bid', { bid: 2 }); // too early
+    await waitFor(() => host.errors.length > 0, 2000, 'early bid rejected');
+    assert.equal(host.view().status, 'dealing');
+    await waitFor(() => host.view().status === 'bidding', 3000, 'bidding after the look time');
+    assert.equal(host.view().dealAt, null);
+  } finally {
+    config.dealMs = 0;
+    config.viewMs = 0;
+  }
+});

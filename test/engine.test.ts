@@ -86,11 +86,51 @@ test('redeal rules', () => {
   assert.equal(needsRedeal([ok, low, ok, ok], { noSpade: true, allBelow: null }), false);
 });
 
-test('round score (tenths of a point)', () => {
+test('round score: bid met = +bid, short = -bid, double or more = -bid (whole points)', () => {
   assert.equal(roundScore10(3, 3), 30);
-  assert.equal(roundScore10(3, 5), 32); // 3.2
-  assert.equal(roundScore10(4, 2), -40);
+  assert.equal(roundScore10(3, 4), 30); // no bonus for an extra trick
+  assert.equal(roundScore10(3, 5), 30); // 5 is still under double
+  assert.equal(roundScore10(3, 2), -30);
+  assert.equal(roundScore10(3, 6), -30); // exactly double
+  assert.equal(roundScore10(3, 9), -30); // more than double
+  assert.equal(roundScore10(1, 1), 10);
+  assert.equal(roundScore10(1, 2), -10); // 2 is already double of 1
   assert.equal(roundScore10(1, 0), -10);
+  assert.equal(roundScore10(2, 3), 20);
+  assert.equal(roundScore10(2, 4), -20);
+  assert.equal(roundScore10(4, 7), 40);
+  assert.equal(roundScore10(4, 8), -40);
+  assert.equal(roundScore10(7, 13), 70); // a 7 can never be doubled
+  assert.equal(roundScore10(8, 7), -80);
+  assert.equal(roundScore10(0, 0), 0); // no-bid round, nothing won
+  assert.equal(roundScore10(5, 5) % 10, 0);
+});
+
+test('game: with dealPhase, a deal waits in "dealing" until beginRound()', () => {
+  const g = new CallBreakGame({ targetScore: 29, rng: mulberry32(7), dealPhase: true });
+  g.start(2);
+  assert.equal(g.phase, 'dealing');
+  assert.ok(g.hands.every((h) => h.length === 13));
+  assert.equal(g.placeBid(3, 2).ok, false); // cannot bid while cards are being dealt
+  assert.equal(g.playCard(3, g.hands[3][0]).ok, false);
+  assert.equal(g.beginRound().ok, true);
+  assert.equal(g.phase, 'bidding');
+  assert.equal(g.turn, 3); // left of the dealer
+  assert.equal(g.beginRound().ok, false); // only valid once
+});
+
+test('game: dealPhase also applies to later rounds and to a no-bid round', () => {
+  const g = new CallBreakGame({ targetScore: 29, rng: mulberry32(9), dealPhase: true, noBidRounds: 1 });
+  g.start(0);
+  assert.equal(g.phase, 'dealing');
+  g.beginRound();
+  assert.equal(g.phase, 'playing'); // round 1 has no bidding
+  while (g.phase === 'playing') g.playCard(g.turn, g.legalMoves(g.turn)[0]);
+  assert.equal(g.phase, 'roundEnd');
+  g.nextRound();
+  assert.equal(g.phase, 'dealing');
+  g.beginRound();
+  assert.equal(g.phase, 'bidding');
 });
 
 test('game: deal gives 13 cards each, 52 unique, bidding starts left of dealer', () => {
