@@ -22,6 +22,8 @@ export interface PublicSeat {
   connected: boolean;
   /** Human who timed out repeatedly; a bot plays for them until they act again. */
   auto: boolean;
+  /** Done looking at the cards (always true for bots); the next phase starts once every human is ready. */
+  ready: boolean;
 }
 
 export interface RoomView {
@@ -66,6 +68,8 @@ interface Seat {
   connected: boolean;
   auto: boolean;
   timeouts: number;
+  /** Pressed "ready" during the look-at-cards phase. */
+  ready: boolean;
 }
 
 const emptySeat = (): Seat => ({
@@ -78,6 +82,7 @@ const emptySeat = (): Seat => ({
   connected: false,
   auto: false,
   timeouts: 0,
+  ready: false,
 });
 
 const BOT_NAMES = ['Bot Rahim', 'Bot Karim', 'Bot Salma', 'Bot Jamal'];
@@ -161,6 +166,7 @@ export class CallBreakRoom extends Room {
     this.onMessage('addBot', (client) => this.handleAddBot(client));
     this.onMessage('removeBot', (client, msg) => this.handleRemoveBot(client, msg));
     this.onMessage('setTarget', (client, msg) => this.handleSetTarget(client, msg));
+    this.onMessage('ready', (client) => this.handleReady(client));
     this.onMessage('bid', (client, msg) => this.handleBid(client, msg));
     this.onMessage('play', (client, msg) => this.handlePlay(client, msg));
     this.onMessage('rematch', (client) => this.handleRematch(client));
@@ -207,6 +213,7 @@ export class CallBreakRoom extends Room {
       connected: true,
       auto: false,
       timeouts: 0,
+      ready: false,
     };
     if (this.hostSeat === -1) this.hostSeat = idx;
 
@@ -221,6 +228,7 @@ export class CallBreakRoom extends Room {
     this.seats[idx].connected = false;
     this.allowReconnection(client, config.reconnectSeconds);
     if (this.game && this.game.turn === idx) this.scheduleTurn(); // a bot covers their turn
+    if (this.checkAllReady()) return;
     this.broadcastState();
   }
 
@@ -250,6 +258,7 @@ export class CallBreakRoom extends Room {
     }
     if (this.hostSeat === idx) this.hostSeat = this.seats.findIndex((s) => s.occupied && !s.isBot);
 
+    if (this.checkAllReady()) return;
     this.updateMetadata();
     this.broadcastState();
   }
@@ -334,6 +343,7 @@ export class CallBreakRoom extends Room {
     this.seats.forEach((s) => {
       s.auto = false;
       s.timeouts = 0;
+      s.ready = false;
     });
     void this.unlock();
     this.updateMetadata();
@@ -359,6 +369,37 @@ export class CallBreakRoom extends Room {
     this.humanActed(idx);
     const res = game.playCard(idx, { suit: msg.suit, rank: msg.rank });
     this.finishAction(client, res);
+  }
+
+  /** A player is done looking at their cards. Only counts once the dealing animation has finished. */
+  private handleReady(client: Client): void {
+    const game = this.game;
+    const idx = this.seatOf(client);
+    if (!game || idx === -1 || game.phase !== 'dealing') return;
+    if (this.dealAt === null || Date.now() - this.dealAt < config.dealMs) return;
+    if (this.seats[idx].ready) return;
+    this.seats[idx].ready = true;
+    if (this.checkAllReady()) return;
+    this.broadcastState();
+  }
+
+  /** If every connected human is ready, end the look-at-cards wait now. Returns true if it did. */
+  private checkAllReady(): boolean {
+    const game = this.game;
+    if (!game || game.phase !== 'dealing' || this.dealAt === null) return false;
+    if (Date.now() - this.dealAt < config.dealMs) return false;
+    const waiting = this.seats.some((s) => s.occupied && !s.isBot && s.connected && !s.ready);
+    if (waiting) return false;
+    this.startRound();
+    return true;
+  }
+
+  private startRound(): void {
+    const game = this.game;
+    if (!game || game.phase !== 'dealing') return;
+    this.dealAt = null;
+    game.beginRound();
+    this.afterChange();
   }
 
   private humanActed(idx: number): void {
@@ -434,7 +475,11 @@ export class CallBreakRoom extends Room {
     if (!game || game.turn !== idx) return;
     let res: ActionResult;
     if (game.phase === 'bidding') {
-      res = game.placeBid(idx, chooseBid(game.hands[idx], game.config.minBid, game.config.maxBid));
+      // A real bot estimates its hand; a human who did not bid in time gets the minimum call.
+      const bid = this.seats[idx].isBot
+        ? chooseBid(game.hands[idx], game.config.minBid, game.config.maxBid)
+        : game.config.minBid;
+      res = game.placeBid(idx, bid);
     } else if (game.phase === 'playing') {
       const card = chooseCard({
         hand: game.hands[idx],
@@ -459,13 +504,8 @@ export class CallBreakRoom extends Room {
   private scheduleDeal(): void {
     this.deadline = null;
     this.dealAt = Date.now();
-    this.dealTimer = this.clock.setTimeout(() => {
-      this.dealAt = null;
-      const game = this.game;
-      if (!game || game.phase !== 'dealing') return;
-      game.beginRound();
-      this.afterChange();
-    }, config.dealMs + config.viewMs);
+    this.seats.forEach((s) => (s.ready = false));
+    this.dealTimer = this.clock.setTimeout(() => this.startRound(), config.dealMs + config.viewMs);
   }
 
   private scheduleNextRound(): void {
@@ -542,6 +582,7 @@ export class CallBreakRoom extends Room {
       connected: true,
       auto: false,
       timeouts: 0,
+      ready: false,
     };
   }
 
@@ -573,6 +614,7 @@ export class CallBreakRoom extends Room {
         isBot: s.isBot,
         connected: s.connected,
         auto: s.auto,
+        ready: s.isBot || s.ready,
       })),
       deadline: this.deadline,
       nextRoundAt: this.nextRoundAt,

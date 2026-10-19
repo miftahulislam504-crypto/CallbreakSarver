@@ -297,6 +297,41 @@ test('dealing phase: cards are dealt, everyone looks at them, then bidding start
   }
 });
 
+test('ready button: all humans ready ends the look-at-cards wait early; too-early ready is ignored', async () => {
+  config.dealMs = 200;
+  config.viewMs = 20000; // would take 20s without the ready button
+  try {
+    const host = await hostCreate({ isPrivate: true, targetScore: 29 }, false);
+    host.room.send('start', { fillBots: true });
+    await waitFor(() => host.view().status === 'dealing', 3000, 'dealing phase');
+    host.room.send('ready'); // still dealing the cards: ignored
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(host.view().seats[host.view().mySeat].ready, false);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(host.view().status, 'dealing');
+    host.room.send('ready');
+    await waitFor(() => host.view().status === 'bidding', 3000, 'bidding right after ready');
+  } finally {
+    config.dealMs = 0;
+    config.viewMs = 0;
+  }
+});
+
+test('minimum call is 2: a human who does not bid in time gets exactly 2', async () => {
+  const host = await hostCreate({ isPrivate: true, targetScore: 29 }, false); // never bids
+  host.room.send('start', { fillBots: true });
+  await waitFor(() => host.view().status === 'bidding', 3000, 'bidding');
+  assert.equal(host.view().game!.minBid, 2);
+  const me = host.view().mySeat;
+  await waitFor(() => host.view().game!.bids[me] !== null || host.view().game!.phase === 'playing', 5000, 'timeout bid');
+  const g = host.view().game!;
+  const mine = g.phase === 'playing' ? undefined : g.bids[me];
+  if (mine !== undefined) assert.equal(mine, 2);
+  await waitFor(() => host.view().game!.history.length > 0, 30000, 'a round finished');
+  assert.equal(host.view().game!.history[0].bids[me], 2);
+  assert.ok(host.view().game!.history[0].bids.every((b) => b >= 2));
+});
+
 test('avatars: valid JPEG data URIs reach every player, junk is dropped, changes propagate', async () => {
   const good = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof';
   const host = await hostCreate({ isPrivate: true }, false);

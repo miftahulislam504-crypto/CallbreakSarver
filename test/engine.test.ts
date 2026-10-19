@@ -146,14 +146,15 @@ test('game: deal gives 13 cards each, 52 unique, bidding starts left of dealer',
 
 test('game: bidding validates turn and range, then moves to playing', () => {
   const g = new CallBreakGame({ targetScore: 29, rng: mulberry32(3) });
+  assert.equal(g.config.minBid, 2);
   g.start(0);
   assert.equal(g.placeBid(0, 3).ok, false); // not your turn
-  assert.equal(g.placeBid(1, 0).ok, false); // below min
+  assert.equal(g.placeBid(1, 1).ok, false); // below min (min call is 2)
   assert.equal(g.placeBid(1, 9).ok, false); // above max
   assert.equal(g.placeBid(1, 2.5).ok, false);
   assert.equal(g.placeBid(1, 2).ok, true);
   assert.equal(g.placeBid(2, 3).ok, true);
-  assert.equal(g.placeBid(3, 1).ok, true);
+  assert.equal(g.placeBid(3, 2).ok, true);
   assert.equal(g.phase, 'bidding');
   assert.equal(g.placeBid(0, 4).ok, true);
   assert.equal(g.phase, 'playing');
@@ -252,7 +253,7 @@ test('tie at the top after reaching the target keeps the game going', () => {
   g.totals10 = [300, 300, 0, 0];
   // play the round out with bots
   while (g.phase === 'bidding' || g.phase === 'playing') {
-    if (g.phase === 'bidding') g.placeBid(g.turn, 1);
+    if (g.phase === 'bidding') g.placeBid(g.turn, 2);
     else {
       const seat = g.turn;
       g.playCard(seat, chooseCard({ hand: g.hands[seat], trick: g.trick, seat, bid: 1, tricksWon: g.tricksWon[seat] }));

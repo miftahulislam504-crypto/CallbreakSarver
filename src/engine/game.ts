@@ -111,7 +111,7 @@ export class CallBreakGame {
     this.rng = opts.rng ?? Math.random;
     this.config = {
       targetScore: opts.targetScore,
-      minBid: opts.minBid ?? 1,
+      minBid: opts.minBid ?? 2,
       maxBid: opts.maxBid ?? 8,
       maxRounds: opts.maxRounds ?? Math.max(30, Math.ceil(opts.targetScore * 1.5)),
       redeal: opts.redeal ?? { noSpade: true, allBelow: 10 },

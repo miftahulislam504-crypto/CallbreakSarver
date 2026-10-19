@@ -23,9 +23,9 @@ export const config = {
   botDelayMinMs: FAST ? 0 : num('CB_BOT_MIN_MS', 700),
   botDelayMaxMs: FAST ? 0 : num('CB_BOT_MAX_MS', 1500),
 
-  /** Card-dealing animation, then time to look at the cards before bidding starts. */
+  /** Card-dealing animation, then time to look at the cards before bidding starts (players can press "ready" to skip the wait). */
   dealMs: FAST ? 0 : num('CB_DEAL_MS', 3000),
-  viewMs: FAST ? 0 : num('CB_VIEW_MS', 5000),
+  viewMs: FAST ? 0 : num('CB_VIEW_MS', 60000),
 
   /** Pause on the round-result screen before the next deal. */
   roundEndMs: FAST ? 50 : num('CB_ROUND_END_MS', 6000),
