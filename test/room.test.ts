@@ -1,12 +1,13 @@
 import './env.js'; // keep first: sets fast timers before config loads
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { listen } from 'colyseus';
+import { listen, matchMaker } from 'colyseus';
 import { Client } from '@colyseus/sdk';
 import { createServer } from '../src/app.js';
 import { config } from '../src/config.js';
 import type { RoomView } from '../src/rooms/CallBreakRoom.js';
 import { setMatchStore, type MatchResult } from '../src/services/matchStore.js';
+import { setVoiceTokenBuilder, type VoiceMessage, type VoiceTokenRequest } from '../src/services/voiceToken.js';
 
 const PORT = 2600 + (process.pid % 300);
 const URL = `ws://localhost:${PORT}`;
@@ -44,6 +45,7 @@ interface TestPlayer {
   room: any;
   view: () => RoomView;
   errors: { code: string; message: string }[];
+  voices: VoiceMessage[];
   autoplay: boolean;
   states: number;
 }
@@ -55,10 +57,12 @@ async function attach(room: any, autoplay: boolean): Promise<TestPlayer> {
     room,
     view: () => latest as RoomView,
     errors: [],
+    voices: [],
     autoplay,
     states: 0,
   };
   room.onMessage('error', (e: any) => p.errors.push(e));
+  room.onMessage('voice', (m: VoiceMessage) => p.voices.push(m));
   room.onMessage('state', (s: RoomView) => {
     latest = s;
     p.states++;
@@ -191,7 +195,8 @@ test('full game: 2 humans + 2 bots play to the end; scores consistent; hands pri
   assert.equal(early.myHand.length, 13);
   assert.deepEqual(early.handCounts, [13, 13, 13, 13]);
 
-  await waitFor(() => host.view().status === 'finished', 30000, 'game finished');
+  // A random game to 29 points takes ~17-25 rounds (~1.5 s each here), so 30 s was sometimes too tight.
+  await waitFor(() => host.view().status === 'finished', 120000, 'game finished');
   const g = host.view().game!;
   assert.ok(g.winners && g.winners.length === 1);
   assert.ok(Math.max(...g.totals) >= 29);
@@ -354,4 +359,162 @@ test('avatars: valid JPEG data URIs reach every player, junk is dropped, changes
   await waitFor(() => got.bela?.[host.view().mySeat] === good, 3000, 'photo change propagates');
   host.room.send('setAvatar', { avatar: 'x'.repeat(config.maxAvatarChars + 5) });
   await waitFor(() => got.bela?.[host.view().mySeat] === null, 3000, 'oversized photo is removed');
+});
+
+/* ------------------------------ voice chat (Agora tokens) ------------------------------ */
+
+const FAKE_APP_ID = '0123456789abcdef0123456789abcdef'; // Agora wants 32 hex characters
+const FAKE_CERT = 'fedcba9876543210fedcba9876543210';
+
+/** Sends `voiceToken` and returns the next `voice` message that arrives. */
+async function askVoice(p: TestPlayer): Promise<VoiceMessage> {
+  const n = p.voices.length;
+  p.room.send('voiceToken');
+  await waitFor(() => p.voices.length > n, 3000, 'voice message');
+  return p.voices[n];
+}
+
+/** Runs `fn` with voice configured (fake keys, no rate limit unless overridden), then restores everything. */
+async function withVoice(overrides: Partial<typeof config>, fn: () => Promise<void>): Promise<void> {
+  const saved = {
+    agoraAppId: config.agoraAppId,
+    agoraAppCertificate: config.agoraAppCertificate,
+    voiceEnabled: config.voiceEnabled,
+    voiceTokenSeconds: config.voiceTokenSeconds,
+    voiceTokenMinGapMs: config.voiceTokenMinGapMs,
+  };
+  Object.assign(config, {
+    agoraAppId: FAKE_APP_ID,
+    agoraAppCertificate: FAKE_CERT,
+    voiceEnabled: true,
+    voiceTokenSeconds: 3600,
+    voiceTokenMinGapMs: 0,
+    ...overrides,
+  });
+  try {
+    await fn();
+  } finally {
+    Object.assign(config, saved);
+    setVoiceTokenBuilder(undefined);
+  }
+}
+
+test('voice: seated humans get a token for channel cb-<room> with uid = seat + 1; the certificate never leaves the server', async () => {
+  await withVoice({ voiceTokenSeconds: 120 }, async () => {
+    const calls: VoiceTokenRequest[] = [];
+    setVoiceTokenBuilder((req) => {
+      calls.push(req);
+      return `fake.${req.channel}.${req.uid}`;
+    });
+    const host = await hostCreate({ isPrivate: true }, false);
+    const code = host.view().roomCode;
+    const guest = await join(code, 'Guest', false);
+
+    const t0 = Date.now();
+    const a = await askVoice(host);
+    const b = await askVoice(guest);
+    assert.ok(a.enabled && b.enabled);
+    assert.equal(a.channel, `cb-${code}`);
+    assert.equal(b.channel, `cb-${code}`);
+    assert.equal(a.uid, host.view().mySeat + 1);
+    assert.equal(b.uid, guest.view().mySeat + 1);
+    assert.notEqual(a.uid, b.uid);
+    assert.ok(a.uid >= 1 && a.uid <= 4 && b.uid >= 1 && b.uid <= 4);
+    assert.equal(a.appId, FAKE_APP_ID);
+    assert.equal(a.token, `fake.cb-${code}.${a.uid}`);
+    assert.ok(a.expiresAt >= t0 + 120_000 && a.expiresAt <= Date.now() + 120_000, 'expiry is now + the configured lifetime');
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].appCertificate, FAKE_CERT);
+    assert.equal(calls[0].ttlSeconds, 120);
+    assert.ok(!JSON.stringify([a, b]).includes(FAKE_CERT), 'the App Certificate must never be sent to a client');
+
+    // Voice keeps working once the game is running (same seat, same uid).
+    host.room.send('start', { fillBots: true });
+    await waitFor(() => host.view().status !== 'lobby', 3000, 'game start');
+    const c = await askVoice(host);
+    assert.ok(c.enabled);
+    assert.equal(c.uid, a.uid);
+  });
+});
+
+test('voice: off without keys, without the certificate, or with VOICE_ENABLED=0; the game is unaffected', async () => {
+  const off = { enabled: false, reason: 'disabled' };
+  const host = await hostCreate({ isPrivate: true }, false);
+
+  await withVoice({ agoraAppId: null, agoraAppCertificate: null }, async () => {
+    assert.deepEqual(await askVoice(host), off);
+  });
+  await withVoice({ agoraAppCertificate: null }, async () => {
+    assert.deepEqual(await askVoice(host), off);
+  });
+  await withVoice({ agoraAppId: null }, async () => {
+    assert.deepEqual(await askVoice(host), off);
+  });
+  await withVoice({ voiceEnabled: false }, async () => {
+    const calls: VoiceTokenRequest[] = [];
+    setVoiceTokenBuilder((req) => (calls.push(req), 'fake'));
+    assert.deepEqual(await askVoice(host), off);
+    assert.equal(calls.length, 0, 'no token is built while the kill switch is on');
+  });
+
+  const states = host.states;
+  host.room.send('sync');
+  await waitFor(() => host.states > states, 3000, 'state still flows');
+  assert.equal(host.errors.length, 0);
+});
+
+test('voice: a client asking too often is rate-limited (per client); it is allowed again later', async () => {
+  await withVoice({ voiceTokenMinGapMs: 300 }, async () => {
+    setVoiceTokenBuilder(() => 'fake');
+    const host = await hostCreate({ isPrivate: true }, false);
+    const guest = await join(host.view().roomCode, 'Guest', false);
+
+    assert.equal((await askVoice(host)).enabled, true);
+    assert.deepEqual(await askVoice(host), { enabled: false, reason: 'rate_limited' });
+    assert.equal((await askVoice(guest)).enabled, true, 'the limit is per client');
+
+    await new Promise((r) => setTimeout(r, 350));
+    assert.equal((await askVoice(host)).enabled, true, 'allowed again after the gap');
+  });
+});
+
+test('voice: a client with no human seat (released, or taken over by a bot) gets no token', async () => {
+  await withVoice({}, async () => {
+    const calls: VoiceTokenRequest[] = [];
+    setVoiceTokenBuilder((req) => (calls.push(req), 'fake'));
+    const host = await hostCreate({ isPrivate: true }, false);
+    const room: any = matchMaker.getLocalRoomById(host.view().roomCode);
+    const seat = room.seats[host.view().mySeat];
+    const sessionId = seat.sessionId;
+
+    seat.sessionId = null; // the room no longer knows this connection
+    assert.deepEqual(await askVoice(host), { enabled: false, reason: 'not_seated' });
+
+    seat.sessionId = sessionId;
+    seat.isBot = true; // a bot sits here now
+    assert.deepEqual(await askVoice(host), { enabled: false, reason: 'not_seated' });
+    assert.equal(calls.length, 0, 'no token was built for either request');
+
+    seat.isBot = false;
+    assert.equal((await askVoice(host)).enabled, true, 'back to a normal human seat');
+  });
+});
+
+test('voice: the real Agora builder issues a token; malformed keys fail soft and the room keeps working', async () => {
+  await withVoice({}, async () => {
+    const host = await hostCreate({ isPrivate: true }, false); // no fake builder: the real one runs
+    const m = await askVoice(host);
+    assert.ok(m.enabled);
+    assert.match(m.token, /^007[A-Za-z0-9+/=]+$/, 'Agora token v007');
+    assert.equal(m.channel, `cb-${host.view().roomCode}`);
+  });
+
+  await withVoice({ agoraAppId: 'not-a-real-app-id' }, async () => {
+    const host = await hostCreate({ isPrivate: true }, false);
+    assert.deepEqual(await askVoice(host), { enabled: false, reason: 'disabled' }); // Agora's builder returns '' for bad keys
+    const states = host.states;
+    host.room.send('sync');
+    await waitFor(() => host.states > states, 3000, 'state still flows');
+  });
 });

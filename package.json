@@ -16,6 +16,7 @@
   "dependencies": {
     "@colyseus/schema": "^5.0.40",
     "@colyseus/tools": "^0.18.10",
+    "agora-token": "2.0.6",
     "colyseus": "^0.18.9",
     "jose": "^6.2.12"
   },

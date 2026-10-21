@@ -6,6 +6,7 @@ import { chooseBid, chooseCard } from '../engine/bot.js';
 import { isValidCard } from '../engine/cards.js';
 import { ActionResult, CallBreakGame, GameView, SEATS, TRICKS_PER_ROUND } from '../engine/game.js';
 import { getMatchStore, type MatchResult } from '../services/matchStore.js';
+import { isVoiceOn, issueVoiceToken, type VoiceDeniedReason } from '../services/voiceToken.js';
 
 /* ----------------------------------------------------------------------------
  * Types sent to clients
@@ -143,6 +144,9 @@ export class CallBreakRoom extends Room {
   /** Per client: the avatar set it was last sent, so photos travel only when they change. */
   private avatarsSent = new WeakMap<Client, string>();
 
+  /** Per client: when it last got a voice token (epoch ms), to rate-limit requests. */
+  private voiceTokenAt = new WeakMap<Client, number>();
+
   private turnTimer: Timer | null = null;
   private roundTimer: Timer | null = null;
   private dealTimer: Timer | null = null;
@@ -175,6 +179,7 @@ export class CallBreakRoom extends Room {
       this.sendView(client);
     });
     this.onMessage('setAvatar', (client, msg) => this.handleSetAvatar(client, msg));
+    this.onMessage('voiceToken', (client) => this.handleVoiceToken(client));
   }
 
   async onAuth(_client: Client, options: any): Promise<any> {
@@ -348,6 +353,34 @@ export class CallBreakRoom extends Room {
     void this.unlock();
     this.updateMetadata();
     this.broadcastState();
+  }
+
+  /* ------------------------------ voice chat ------------------------------ */
+
+  /**
+   * A player asks for a voice token. The answer is always one `voice` message:
+   * a grant (channel, uid, token, ...) or `{ enabled: false, reason }`. Voice problems never touch the game.
+   * Only a human sitting in this room gets a token, so nobody can join the voice channel without a seat.
+   */
+  private handleVoiceToken(client: Client): void {
+    const deny = (reason: VoiceDeniedReason) => client.send('voice', { enabled: false, reason });
+
+    const idx = this.seatOf(client);
+    if (idx === -1 || this.seats[idx].isBot) return deny('not_seated');
+    if (!isVoiceOn()) return deny('disabled');
+
+    const now = Date.now();
+    const last = this.voiceTokenAt.get(client);
+    if (last !== undefined && now - last < config.voiceTokenMinGapMs) return deny('rate_limited');
+    this.voiceTokenAt.set(client, now);
+
+    try {
+      client.send('voice', issueVoiceToken(this.code, idx, now));
+    } catch (err) {
+      // e.g. a malformed App ID / Certificate. Log the cause (never the keys) and keep the game running.
+      console.error(`[room ${this.code}] voice token failed: ${err instanceof Error ? err.message : String(err)}`);
+      deny('disabled');
+    }
   }
 
   /* ------------------------------ game actions ------------------------------ */

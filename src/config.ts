@@ -3,6 +3,9 @@ const num = (name: string, fallback: number): number => {
   return Number.isFinite(v) && v >= 0 ? v : fallback;
 };
 
+/** True when the env var is explicitly switched off ("0", "false", "off", "no"); unset = not off. */
+const isOff = (name: string): boolean => /^(0|false|off|no)$/i.test(process.env[name]?.trim() ?? '');
+
 /** CB_FAST=1 removes all artificial delays (used by automated tests). */
 const FAST = process.env.CB_FAST === '1';
 
@@ -11,6 +14,19 @@ export const config = {
 
   /** Set FIREBASE_PROJECT_ID in production: joins then require a valid Firebase ID token. */
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID?.trim() || null,
+
+  /**
+   * Voice chat (Agora). Voice is on only when both the App ID and the App Certificate are set.
+   * The certificate is a secret: it lives in this env var only, never in the app or in git.
+   */
+  agoraAppId: process.env.AGORA_APP_ID?.trim() || null,
+  agoraAppCertificate: process.env.AGORA_APP_CERTIFICATE?.trim() || null,
+  /** Emergency kill switch: VOICE_ENABLED=0 turns voice off without touching the keys. */
+  voiceEnabled: !isOff('VOICE_ENABLED'),
+  /** How long a voice token lives (clamped to 60 s .. 24 h when issued). */
+  voiceTokenSeconds: num('CB_VOICE_TOKEN_SECONDS', 3600),
+  /** Minimum gap between two token requests from the same client. */
+  voiceTokenMinGapMs: num('CB_VOICE_TOKEN_MIN_GAP_MS', 5000),
 
   /** The first N rounds are played without bidding; a player's score there is their tricks won. */
   noBidRounds: num('CB_NO_BID_ROUNDS', 1),

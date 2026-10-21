@@ -30,6 +30,7 @@ src/
   rooms/CallBreakRoom  রুম: লবি, বট, টাইমার, reconnect, মেসেজ
   auth/verifyIdToken   Firebase ID token যাচাই
   services/matchStore  শেষ হওয়া ম্যাচ কোথায় যাবে (এখন শুধু log; Phase 5-এ Firestore)
+  services/voiceToken  ভয়েস চ্যাটের Agora টোকেন বানানো (injectable, test-এ নকল বসানো যায়)
 test/                  engine, room, auth test
 render.yaml            Render (ফ্রি) deploy
 DEPLOY.md              deploy-এর ধাপ (বাংলায়)
@@ -47,6 +48,13 @@ DEPLOY.md              deploy-এর ধাপ (বাংলায়)
 | `CB_ROUND_END_MS` | 6000 | রাউন্ড শেষের সামারি কতক্ষণ দেখাবে |
 | `CB_DISCONNECTED_PLAY_MS` | 2500 | disconnect হলে কতক্ষণ পরে বট চাল দেবে |
 | `CB_FAST` | খালি | `1` দিলে সব বিলম্ব বন্ধ (শুধু test-এর জন্য) |
+| `AGORA_APP_ID` | খালি | Agora প্রজেক্টের App ID (৩২ অক্ষরের hex) |
+| `AGORA_APP_CERTIFICATE` | খালি | Agora App Certificate (৩২ অক্ষরের hex)। **গোপন: শুধু Render env-এ রাখো, GitHub বা app-এ নয়।** খালি থাকলে ভয়েস বন্ধ |
+| `VOICE_ENABLED` | চালু | `0` দিলে ভয়েস বন্ধ (জরুরি কিল-সুইচ; key বদলাতে হয় না, গেম স্বাভাবিক চলে) |
+| `CB_VOICE_TOKEN_SECONDS` | 3600 | ভয়েস টোকেনের মেয়াদ (সেকেন্ড; কাজে ৬০ থেকে ৮৬৪০০-এর মধ্যে ধরা হয়) |
+| `CB_VOICE_TOKEN_MIN_GAP_MS` | 5000 | এক ক্লায়েন্ট কত ঘন ঘন টোকেন চাইতে পারবে |
+
+server চালু হলে log-এ একটা লাইন আসে: `Voice chat: ON` অথবা `Voice chat: OFF (কারণ)`। Render env ঠিক বসেছে কিনা এখান থেকেই বোঝা যায় (key-এর মান কখনো log হয় না)।
 
 ## খেলার নিয়ম (সংক্ষেপে)
 - ৪ জন, ৫২ কার্ড, স্পেড = ট্রাম্প। প্রতি রাউন্ডে ১৩টা করে।
@@ -61,7 +69,25 @@ server → client: `state` (পুরো `RoomView`, প্রতি পরি�
 
 প্রথম রাউন্ড বিড ছাড়া খেলা হয় (`CB_NO_BID_ROUNDS`, ডিফল্ট ১; `0` দিলে বন্ধ)। ওই রাউন্ডে স্কোর = জেতা হাতের সংখ্যা (বিড = হাত ধরা হয়)।
 
-client → server: `sync`, `setTarget`, `addBot`, `removeBot`, `start {fillBots}`, `ready`, `bid {bid}`, `play {suit, rank}`, `rematch`।
+client → server: `sync`, `setTarget`, `addBot`, `removeBot`, `start {fillBots}`, `ready`, `bid {bid}`, `play {suit, rank}`, `rematch`, `voiceToken`।
+
+### ভয়েস চ্যাট (Agora)
+client `voiceToken` পাঠায় (কোনো payload নেই); server সবসময় ঠিক একটা `voice` মেসেজ ফেরত দেয়:
+```
+voice {
+  enabled: boolean,
+  appId?: string,        // enabled হলে
+  channel?: string,      // "cb-<roomCode>"
+  uid?: number,          // সিট + 1 (1 থেকে 4)
+  token?: string,
+  expiresAt?: number,    // epoch ms
+  reason?: 'disabled' | 'not_seated' | 'rate_limited'   // enabled=false হলে
+}
+```
+- `not_seated`: এই রুমে বসা মানুষ নয় (বটের তো client-ই নেই)। `disabled`: key নেই, `VOICE_ENABLED=0`, অথবা Agora key নিতে পারেনি। `rate_limited`: `CB_VOICE_TOKEN_MIN_GAP_MS`-এর আগেই আবার চেয়েছে।
+- ভয়েসের কোনো সমস্যা গেমে প্রভাব ফেলে না: `voice` মেসেজ আলাদা, `state`-এ কিছু বদলায় না।
+- App Certificate কখনো client-এ যায় না; client শুধু তৈরি-করা টোকেন পায়।
+- টোকেনের মেয়াদ শেষের আগে রিনিউ করতে client আবার `voiceToken` পাঠাবে (রিনিউ Phase 5-এ app-এর দিকে যোগ হবে)।
 
 ## খেলার নিয়ম (স্কোরিং ও রাউন্ড শুরু)
 - **স্কোর** (`engine/rules.ts` → `roundScore10`): হাত < কল হলে **−কল**; কল ≤ হাত < কলের ডাবল হলে **+কল** (বাড়তি হাতের বোনাস নেই); হাত ≥ কলের ডাবল হলে **−কল**। স্কোর পূর্ণ সংখ্যা। প্রথম রাউন্ডে (বিড ছাড়া) যত হাত তত পয়েন্ট।
