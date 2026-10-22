@@ -88,7 +88,8 @@ const emptySeat = (): Seat => ({
   ready: false,
 });
 
-const BOT_NAMES = ['Bot Rahim', 'Bot Karim', 'Bot Salma', 'Bot Jamal'];
+// Animal names: the app draws a matching animal avatar for a bot from its name (see app src/lib/botAvatars.ts).
+const BOT_NAMES = ['Cat', 'Dog', 'Snake', 'Fox', 'Panda', 'Lion'];
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 const activeCodes = new Set<string>();
 
@@ -606,7 +607,8 @@ export class CallBreakRoom extends Room {
 
   private putBot(idx: number): void {
     const used = new Set(this.seats.map((s) => s.name));
-    const name = BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${idx + 1}`;
+    const free = BOT_NAMES.filter((n) => !used.has(n));
+    const name = free.length > 0 ? free[Math.floor(Math.random() * free.length)] : `Bot ${idx + 1}`;
     this.seats[idx] = {
       occupied: true,
       isBot: true,
