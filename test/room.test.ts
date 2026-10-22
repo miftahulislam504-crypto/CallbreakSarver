@@ -518,3 +518,16 @@ test('voice: the real Agora builder issues a token; malformed keys fail soft and
     await waitFor(() => host.states > states, 3000, 'state still flows');
   });
 });
+
+test('seats carry the account id of humans only (so the lobby can offer "add friend")', async () => {
+  const host = await hostCreate({ isPrivate: true, uid: 'uid-host' }, false);
+  const code = host.view().roomCode;
+  const bela = await attach(await connect().joinById(code, { name: 'Bela', uid: 'uid-bela' }), false);
+  host.room.send('addBot');
+  await waitFor(() => host.view().seats.filter((s) => s.occupied).length === 3, 3000, 'bot added');
+
+  const seats = host.view().seats;
+  assert.equal(seats[host.view().mySeat].uid, 'uid-host');
+  assert.equal(seats[bela.view().mySeat].uid, 'uid-bela');
+  for (const s of seats.filter((x) => x.isBot || !x.occupied)) assert.equal(s.uid, null, 'bots and empty seats have no uid');
+});

@@ -25,6 +25,8 @@ export interface PublicSeat {
   auto: boolean;
   /** Done looking at the cards (always true for bots); the next phase starts once every human is ready. */
   ready: boolean;
+  /** The human's account id (null for bots / empty seats), so clients can offer "add friend". */
+  uid: string | null;
 }
 
 export interface RoomView {
@@ -648,6 +650,7 @@ export class CallBreakRoom extends Room {
         connected: s.connected,
         auto: s.auto,
         ready: s.isBot || s.ready,
+        uid: s.occupied && !s.isBot ? s.uid : null,
       })),
       deadline: this.deadline,
       nextRoundAt: this.nextRoundAt,
