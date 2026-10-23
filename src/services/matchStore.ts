@@ -1,5 +1,3 @@
-import type { RoundResult } from '../engine/game.js';
-
 export interface MatchPlayerResult {
   seat: number;
   uid: string | null;
@@ -8,20 +6,24 @@ export interface MatchPlayerResult {
   isBot: boolean;
   /** A human who left mid-match (a bot finished their seat). */
   leftEarly: boolean;
-  /** Final total in points (one decimal). */
+  /** Final total: points (Call Break), game points of the team (29) or chips (poker). */
   total: number;
   /** 1 = winner. Tied seats share a rank. */
   rank: number;
 }
 
 export interface MatchResult {
+  /** Which game this was; absent on matches saved by older code (Call Break). */
+  game?: 'callbreak' | 'twentynine' | 'poker';
   roomCode: string;
+  /** Call Break: target score. 29: game points to win. Poker: starting chips. */
   targetScore: number;
   startedAt: number;
   endedAt: number;
   players: MatchPlayerResult[];
   winners: number[];
-  rounds: RoundResult[];
+  /** Per-round results as the game's engine records them (Call Break / 29); empty for poker. */
+  rounds: unknown[];
 }
 
 /**
