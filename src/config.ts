@@ -57,6 +57,20 @@ export const config = {
   minTarget: 10,
   maxTarget: 500,
   defaultTarget: 49,
+
+  /** 29: game points a team needs to win (or, going the other way, the deficit that loses). */
+  tnMinTarget: 2,
+  tnMaxTarget: 30,
+  tnDefaultTarget: 3,
+
+  /** Poker: allowed starting stacks (play-money chips), the default, seconds to act and blind pace. */
+  pokerChipOptions: [500, 1000, 2000, 5000] as number[],
+  pokerDefaultChips: 1000,
+  pokerActionSeconds: num('CB_POKER_ACTION_SECONDS', 25),
+  pokerHandsPerLevel: num('CB_POKER_HANDS_PER_LEVEL', 8),
+  pokerMaxHands: num('CB_POKER_MAX_HANDS', 120),
+  /** Pause after a poker hand before the next one is dealt. */
+  pokerHandEndMs: FAST ? 50 : num('CB_POKER_HAND_END_MS', 5000),
   maxNameLength: 20,
   /** Longest accepted avatar data URI (a ~96x120 JPEG is about 5-8k characters). */
   maxAvatarChars: 16000,

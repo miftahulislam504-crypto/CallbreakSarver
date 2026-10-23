@@ -4,4 +4,5 @@ process.env.CB_NO_BID_ROUNDS = '0'; // existing room tests expect round 1 to sta
 process.env.CB_BID_SECONDS = '1';
 process.env.CB_PLAY_SECONDS = '1';
 process.env.CB_RECONNECT_SECONDS = '5';
+process.env.CB_POKER_ACTION_SECONDS = '1';
 export {};

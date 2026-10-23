@@ -1,7 +1,7 @@
 {
   "name": "callbreak-server",
   "version": "0.1.0",
-  "description": "Call Break (কল ব্রেক) real-time multiplayer server — Colyseus",
+  "description": "Card games (Call Break, 29, Poker) real-time multiplayer server — Colyseus",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -11,7 +11,10 @@
     "test": "node --import tsx --test test/engine.test.ts",
     "test:room": "node --import tsx --test test/room.test.ts",
     "test:auth": "node --import tsx --test test/auth.test.ts",
-    "test:all": "node --import tsx --test test/*.test.ts"
+    "test:all": "node --import tsx --test test/*.test.ts",
+    "test:29": "node --import tsx --test test/twentynine.test.ts",
+    "test:poker": "node --import tsx --test test/poker.test.ts",
+    "test:rooms": "node --import tsx --test test/twentynine-room.test.ts test/poker-room.test.ts"
   },
   "dependencies": {
     "@colyseus/schema": "^5.0.40",

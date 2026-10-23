@@ -6,6 +6,7 @@ import { chooseBid, chooseCard } from '../engine/bot.js';
 import { isValidCard } from '../engine/cards.js';
 import { ActionResult, CallBreakGame, GameView, SEATS, TRICKS_PER_ROUND } from '../engine/game.js';
 import { getMatchStore, type MatchResult } from '../services/matchStore.js';
+import { BOT_NAMES, cleanAvatar, cleanName, makeRoomCode, releaseRoomCode } from './common.js';
 import { isVoiceOn, issueVoiceToken, type VoiceDeniedReason } from '../services/voiceToken.js';
 
 /* ----------------------------------------------------------------------------
@@ -88,35 +89,7 @@ const emptySeat = (): Seat => ({
   ready: false,
 });
 
-// Animal names: the app draws a matching animal avatar for a bot from its name (see app src/lib/botAvatars.ts).
-const BOT_NAMES = ['Cat', 'Dog', 'Snake', 'Fox', 'Panda', 'Lion'];
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
-const activeCodes = new Set<string>();
-
-function makeRoomCode(): string {
-  let code: string;
-  do {
-    code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
-  } while (activeCodes.has(code));
-  activeCodes.add(code);
-  return code;
-}
-
-function cleanName(raw: unknown, fallback: string): string {
-  if (typeof raw !== 'string') return fallback;
-  const name = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, config.maxNameLength);
-  return name.length > 0 ? name : fallback;
-}
-
-const AVATAR_PREFIX = 'data:image/jpeg;base64,';
-const AVATAR_B64 = /^[A-Za-z0-9+/]+={0,2}$/;
-
-/** Accepts only a small JPEG data URI; anything else (too big, wrong type, junk) becomes null. */
-export function cleanAvatar(raw: unknown): string | null {
-  if (typeof raw !== 'string' || raw.length > config.maxAvatarChars) return null;
-  if (!raw.startsWith(AVATAR_PREFIX)) return null;
-  return AVATAR_B64.test(raw.slice(AVATAR_PREFIX.length)) ? raw : null;
-}
+export { cleanAvatar };
 
 function parseTarget(raw: unknown): number | null {
   const n = typeof raw === 'string' ? Number(raw) : raw;
@@ -273,7 +246,7 @@ export class CallBreakRoom extends Room {
 
   onDispose(): void {
     this.clearTimers();
-    activeCodes.delete(this.code);
+    releaseRoomCode(this.code);
   }
 
   /* ------------------------------ lobby actions ------------------------------ */
